@@ -1,0 +1,145 @@
+Project Title UniPool — University-only Carpooling (Pindi Gheb → University)
+
+One-sentence goal A secure carpooling web app restricted to university members (sign-up only via university email) that connects student passengers with drivers who want to split fuel costs.
+
+Tech stack (required by you)
+
+Frontend: Next.js (latest; you can use App Router or Pages Router — preference: App Router)
+Auth: Clerk (email auth; enforce university email domain)
+DB: MongoDB (Atlas)
+UI primitives: shadcn/ui (optional) + Tailwind CSS
+Maps: Leaflet + OpenStreetMap tiles (free). For routing/route polylines use OpenRouteService (ORS) free tier or compute polyline on client when driver records route. Use Nominatim (OSM) for geocoding (respect rate limits) or LocationIQ/OpenCage if you want a small API key.
+Realtime (optional): Pusher Channels free plan or polling/SSE if you want fully free and simple.
+File storage for CNIC & avatars: Cloudinary (free tier) or DigitalOcean Spaces / Amazon S3 (recommended Cloudinary for simplicity).
+Hosting: Vercel (frontend & serverless API routes)
+High-level features (must-have)
+
+University-only signup: only addresses in allowed domain (e.g., @university.edu.pk) may sign up.
+Roles: Driver, Passenger, or Both (select at signup/profile).
+Drivers can post rides (source, destination, date/time, seats available, cost per seat, optional route polyline).
+Passengers can search rides by location and time (geospatial search: within X km of passenger start).
+Booking flow: passenger requests seat → driver accepts/rejects → seats_available updates.
+Route visualization: show route line on map, markers for pickup & destination.
+CNIC verification (optional for drivers): upload CNIC; status: pending/verified/rejected.
+Live status (optional advanced): show driver distance/time-to-pickup (can be implemented later).
+Admin panel: for handling CNIC verification & managing platform (optional simple admin flag).
+Non-functional requirements
+
+Data safety: CNIC and personal data stored securely (private bucket; never exposed to non-authorized users).
+Small footprint: free services where possible; easy deployment to Vercel.
+DBMS/Geo emphasis: use MongoDB GeoJSON and 2dsphere indexes for geospatial queries (for your DBMS marks).
+Low cost: if 3rd-party APIs with free tiers are used, include fallback.
+Detailed data model (MongoDB collections + sample documents)
+
+users
+
+Collection: users
+Fields:
+_id: ObjectId
+clerkId: string (Clerk user id)
+name: string
+email: string
+role: "passenger" | "driver" | "both"
+cnic: string | null (stored only if uploaded)
+cnic_status: "not_uploaded" | "pending" | "verified" | "rejected"
+vehicle_ids: [ObjectId] (references vehicles)
+createdAt: ISODate
+isAdmin: boolean (optional)
+Indexes:
+unique index on email
+Example:
+Code
+{
+  _id: ObjectId("..."),
+  clerkId: "user_ck_abc123",
+  name: "Asim Ishaq",
+  email: "asim.ishaq@university.edu.pk",
+  role: "passenger",
+  cnic: null,
+  cnic_status: "not_uploaded",
+  vehicle_ids: [],
+  createdAt: ISODate("2025-12-01T06:00:00Z")
+}
+vehicles
+
+Collection: vehicles
+Fields:
+_id, owner_user_id: ObjectId
+model: string
+plate: string
+color: string
+createdAt
+Example:
+Code
+{
+  _id: ObjectId("..."),
+  owner_user_id: ObjectId("..."),
+  model: "Toyota Corolla",
+  plate: "ABC-1234",
+  color: "White",
+  createdAt: ISODate(...)
+}
+rides
+
+Collection: rides
+Fields:
+_id
+driver_id: ObjectId
+vehicle_id: ObjectId | null
+source: { type: "Point", coordinates: [lng, lat] }
+dest: { type: "Point", coordinates: [lng, lat] }
+route: { type: "LineString", coordinates: [[lng,lat],[lng,lat],...] } | null
+time: ISODate (ride departure)
+seats_total: int
+seats_available: int
+cost_per_seat: number (in PKR)
+createdAt
+is_active: boolean
+Indexes:
+2dsphere index on source
+2dsphere index on dest
+Example:
+Code
+{
+  _id: ObjectId("..."),
+  driver_id: ObjectId("..."),
+  vehicle_id: ObjectId("..."),
+  source: { type: "Point", coordinates: [72.419, 33.010] }, // Pindi Gheb approx
+  dest: { type: "Point", coordinates: [73.0479, 33.6844] }, // University
+  route: { type: "LineString", coordinates: [ [72.419,33.010], [72.8,33.3], [73.0479,33.6844] ] },
+  time: ISODate("2025-12-10T02:30:00Z"),
+  seats_total: 3,
+  seats_available: 3,
+  cost_per_seat: 300,
+  createdAt: ISODate(...),
+  is_active: true
+}
+bookings
+
+Collection: bookings
+Fields:
+_id
+ride_id: ObjectId
+passenger_id: ObjectId
+status: "pending" | "accepted" | "rejected" | "cancelled"
+createdAt
+updatedAt
+Example:
+Code
+{
+  _id: ObjectId("..."),
+  ride_id: ObjectId("..."),
+  passenger_id: ObjectId("..."),
+  status: "pending",
+  createdAt: ISODate(...),
+  updatedAt: ISODate(...)
+}
+live_locations (optional)
+
+Store driver real-time coordinates for ETA calculation
+Fields: driver_id, location: Point, updatedAt
+MongoDB index commands (run once)
+
+Code
+db.rides.createIndex({ source: "2dsphere" })
+db.rides.createIndex({ dest: "2dsp...
