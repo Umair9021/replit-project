@@ -285,4 +285,22 @@
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
     inset: -1px;
   }
+
+  /* Custom map marker styles */
+  .custom-marker {
+    background: transparent;
+    border: none;
+  }
+
+  .leaflet-popup-content-wrapper {
+    @apply bg-popover text-popover-foreground rounded-md shadow-lg border;
+  }
+
+  .leaflet-popup-tip {
+    @apply bg-popover;
+  }
+
+  .leaflet-container {
+    font-family: inherit;
+  }
 }
