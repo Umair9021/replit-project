@@ -67,7 +67,9 @@ export const rides = pgTable("rides", {
   isActive: boolean("is_active").default(true),
 });
 
-export const insertRideSchema = createInsertSchema(rides).omit({ id: true });
+export const insertRideSchema = createInsertSchema(rides).omit({ id: true }).extend({
+    departureTime: z.coerce.date(), // This will accept both Date and string
+  });
 export type InsertRide = z.infer<typeof insertRideSchema>;
 export type Ride = typeof rides.$inferSelect;
 
