@@ -13,6 +13,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { MapComponent } from "@/components/map-component";
+
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { RoleToggle } from "@/components/role-toggle";
@@ -21,28 +24,48 @@ import { EmptyState } from "@/components/empty-state";
 import { BookingCardSkeleton } from "@/components/loading-skeleton";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { BookingWithDetails } from "@shared/schema";
-import { Clock, Check, X, Calendar, MapPin } from "lucide-react";
+import { Clock, Check, X, Calendar } from "lucide-react";
 
 export default function Bookings() {
   const { user, activeRole } = useAuth();
   const { toast } = useToast();
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [bookingToCancel, setBookingToCancel] = useState<string | null>(null);
+  
+  const [trackingRide, setTrackingRide] = useState<any | null>(null);
 
   const { data: bookings, isLoading } = useQuery<BookingWithDetails[]>({
     queryKey: ["/api/bookings"],
+    refetchInterval: 3000, 
   });
 
-  const myBookings = bookings?.filter((b) =>
-    activeRole === "driver"
-      ? b.driver?.id === user?.id
-      : b.passengerId === user?.id
-  ) || [];
+  // ✅ HELPER: Safely extract ID from Object or String
+  const getId = (item: any) => {
+    if (!item) return null;
+    return typeof item === 'object' ? item._id : item;
+  };
+
+  const myBookings = bookings?.filter((b) => {
+    if (activeRole === "driver") {
+      const ride = b.rideId as any; // Cast to access populated fields
+      const rideDriverId = ride ? getId(ride.driverId) : null;
+      const directDriverId = getId(b.driver);
+      
+      return rideDriverId === user?.id || directDriverId === user?.id;
+    } else {
+      return getId(b.passengerId) === user?.id;
+    }
+  }) || [];
 
   const pendingBookings = myBookings.filter((b) => b.status === "pending");
   const acceptedBookings = myBookings.filter((b) => b.status === "accepted");
+  
+  // ✅ FIX: "Past" includes rejected/cancelled bookings OR accepted bookings where the RIDE is completed
   const pastBookings = myBookings.filter(
-    (b) => b.status === "rejected" || b.status === "cancelled"
+    (b) => 
+      b.status === "rejected" || 
+      b.status === "cancelled" || 
+      (b.ride && (b.ride as any).status === "completed") // Check Ride status, not Booking status
   );
 
   const handleBookingAction = useMutation({
@@ -141,6 +164,7 @@ export default function Bookings() {
               setBookingToCancel(booking.id);
               setCancelDialogOpen(true);
             }}
+            onTrack={() => setTrackingRide(booking.ride || booking.rideId)}
           />
         ))}
       </div>
@@ -191,6 +215,35 @@ export default function Bookings() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={!!trackingRide} onOpenChange={() => setTrackingRide(null)}>
+        <DialogContent className="max-w-3xl h-[80vh] p-0">
+          {trackingRide && (
+            <MapComponent
+              center={[
+                trackingRide.currentLat || trackingRide.sourceLat,
+                trackingRide.currentLng || trackingRide.sourceLng
+              ]}
+              zoom={14}
+              markers={[
+                {
+                  position: [
+                    trackingRide.currentLat || trackingRide.sourceLat,
+                    trackingRide.currentLng || trackingRide.sourceLng
+                  ],
+                  label: "Driver (Live)",
+                  type: "driver"
+                },
+                {
+                  position: [trackingRide.destLat, trackingRide.destLng],
+                  label: "Destination",
+                  type: "destination"
+                }
+              ]}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
         <AlertDialogContent>

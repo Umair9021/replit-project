@@ -33,7 +33,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { MapComponent } from "@/components/map-component";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Vehicle } from "@shared/schema";
+import type { Vehicle, InsertRide } from "@shared/schema";
 import {
   MapPin,
   Calendar as CalendarIcon,
@@ -114,26 +114,9 @@ export default function PostRide() {
   });
 
   const createRideMutation = useMutation({
-    mutationFn: async (data: RideFormData) => {
-      const [hours, minutes] = data.departureTime.split(":").map(Number);
-      const departureTime = new Date(data.departureDate);
-      departureTime.setHours(hours, minutes, 0, 0);
-
-      return apiRequest("POST", "/api/rides", {
-        driverId: user?.id,
-        vehicleId: data.vehicleId || null,
-        sourceLat: data.sourceLat,
-        sourceLng: data.sourceLng,
-        sourceAddress: data.sourceAddress,
-        destLat: data.destLat,
-        destLng: data.destLng,
-        destAddress: data.destAddress,
-        departureTime: departureTime.toISOString(),
-        seatsTotal: data.seatsTotal,
-        seatsAvailable: data.seatsTotal,
-        costPerSeat: data.costPerSeat,
-        isActive: true,
-      });
+    mutationFn: async (data: InsertRide) => {
+      const res = await apiRequest("POST", "/api/rides", data);
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/rides"] });
@@ -153,7 +136,38 @@ export default function PostRide() {
   });
 
   const onSubmit = (data: RideFormData) => {
-    createRideMutation.mutate(data);
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "You must be logged in to post a ride",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // 1. Combine Date and Time
+    const departureDateTime = new Date(data.departureDate);
+    const [hours, minutes] = data.departureTime.split(':').map(Number);
+    departureDateTime.setHours(hours, minutes);
+
+    // 2. Transform form data to match API schema (InsertRide)
+    const rideData: InsertRide = {
+      sourceAddress: data.sourceAddress,
+      sourceLat: data.sourceLat,
+      sourceLng: data.sourceLng,
+      destAddress: data.destAddress,
+      destLat: data.destLat,
+      destLng: data.destLng,
+      costPerSeat: data.costPerSeat,
+      seatsTotal: data.seatsTotal,
+      // Set calculated/required fields:
+      departureTime: departureDateTime,
+      driverId: user.id, // Add the logged-in user's ID
+      seatsAvailable: data.seatsTotal, // Initially, available = total
+      vehicleId: data.vehicleId || undefined, // Handle empty string as undefined
+    };
+
+    createRideMutation.mutate(rideData);
   };
 
   const handleMapClick = (lat: number, lng: number) => {

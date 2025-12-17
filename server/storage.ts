@@ -1,11 +1,11 @@
-import type { User, InsertUser, Vehicle, InsertVehicle, Ride, InsertRide, Booking, InsertBooking, RideWithDriver, BookingWithDetails } from "@shared/schema";
+// server/storage.ts
+import type { User, InsertUser, Vehicle, InsertVehicle, Ride, InsertRide, Booking, InsertBooking, RideWithDriver, BookingWithDetails, InsertReview, Review } from "@shared/schema";
+import { UserModel, VehicleModel, RideModel, BookingModel, ReviewModel } from "./db";
 import { randomUUID } from "crypto";
 
-type SafeUser = Omit<User, 'password'>;
-
-function stripPassword(user: User): SafeUser {
+function stripPassword(user: any): User {
   const { password, ...safeUser } = user;
-  return safeUser;
+  return safeUser as User;
 }
 
 export interface IStorage {
@@ -40,415 +40,275 @@ export interface IStorage {
   createBooking(booking: InsertBooking): Promise<Booking>;
   updateBooking(id: string, data: Partial<Booking>): Promise<Booking | undefined>;
   
+  // Reviews (Fixed Missing Methods)
+  createReview(review: InsertReview): Promise<Review>;
+  getReviewsByUser(userId: string): Promise<Review[]>;
+  getDriverAverageRating(driverId: string): Promise<number>;
+
   // Stats
   getDriverStats(driverId: string): Promise<{
     totalRides: number;
     activeRides: number;
     totalBookings: number;
     totalEarnings: number;
+    averageRating: number;
   }>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-  private vehicles: Map<string, Vehicle>;
-  private rides: Map<string, Ride>;
-  private bookings: Map<string, Booking>;
-
-  constructor() {
-    this.users = new Map();
-    this.vehicles = new Map();
-    this.rides = new Map();
-    this.bookings = new Map();
-    
-    this.seedData();
+export class MongoStorage implements IStorage {
+  
+  private mapDoc<T>(doc: any): T {
+    if (!doc) return undefined as any;
+    const obj = doc.toObject();
+    obj.id = obj._id;
+    delete obj._id;
+    delete obj.__v;
+    return obj as T;
   }
 
-  private seedData() {
-    const demoDriver: User = {
-      id: "driver-1",
-      clerkId: null,
-      name: "Ahmed Khan",
-      email: "ahmed.khan@university.edu.pk",
-      password: "password123",
+  // --- Helper for Missing Drivers ---
+  private getSafeDriver(driver: User | undefined, driverId: string): User {
+    if (driver) return stripPassword(driver);
+    return {
+      id: driverId,
+      name: "Unknown Driver",
+      email: "missing@data.com",
       role: "driver",
-      avatar: null,
-      phone: "0300-1234567",
-      cnic: null,
-      cnicStatus: "verified",
-      isAdmin: false,
-    };
-
-    const demoDriver2: User = {
-      id: "driver-2",
-      clerkId: null,
-      name: "Sara Ahmed",
-      email: "sara.ahmed@university.edu.pk",
-      password: "password123",
-      role: "both",
-      avatar: null,
-      phone: "0301-2345678",
-      cnic: null,
-      cnicStatus: "verified",
-      isAdmin: false,
-    };
-
-    const demoPassenger: User = {
-      id: "passenger-1",
-      clerkId: null,
-      name: "Ali Raza",
-      email: "ali.raza@university.edu.pk",
-      password: "password123",
-      role: "passenger",
-      avatar: null,
-      phone: "0302-3456789",
-      cnic: null,
       cnicStatus: "not_uploaded",
       isAdmin: false,
-    };
-
-    this.users.set(demoDriver.id, demoDriver);
-    this.users.set(demoDriver2.id, demoDriver2);
-    this.users.set(demoPassenger.id, demoPassenger);
-
-    const vehicle1: Vehicle = {
-      id: "vehicle-1",
-      ownerId: "driver-1",
-      model: "Toyota Corolla 2020",
-      plate: "ABC-1234",
-      color: "White",
-      seats: 4,
-    };
-
-    const vehicle2: Vehicle = {
-      id: "vehicle-2",
-      ownerId: "driver-2",
-      model: "Honda Civic 2019",
-      plate: "XYZ-5678",
-      color: "Silver",
-      seats: 4,
-    };
-
-    this.vehicles.set(vehicle1.id, vehicle1);
-    this.vehicles.set(vehicle2.id, vehicle2);
-
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(7, 0, 0, 0);
-
-    const ride1: Ride = {
-      id: "ride-1",
-      driverId: "driver-1",
-      vehicleId: "vehicle-1",
-      sourceLat: 33.2451,
-      sourceLng: 72.4192,
-      sourceAddress: "Pindi Gheb Main Chowk, Punjab",
-      destLat: 33.6844,
-      destLng: 73.0479,
-      destAddress: "University Campus, Islamabad",
-      departureTime: tomorrow,
-      seatsTotal: 3,
-      seatsAvailable: 2,
-      costPerSeat: 300,
-      isActive: true,
-    };
-
-    const dayAfterTomorrow = new Date();
-    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
-    dayAfterTomorrow.setHours(8, 30, 0, 0);
-
-    const ride2: Ride = {
-      id: "ride-2",
-      driverId: "driver-2",
-      vehicleId: "vehicle-2",
-      sourceLat: 33.2651,
-      sourceLng: 72.4092,
-      sourceAddress: "Pindi Gheb Bus Stand, Punjab",
-      destLat: 33.6744,
-      destLng: 73.0679,
-      destAddress: "University Gate 1, Islamabad",
-      departureTime: dayAfterTomorrow,
-      seatsTotal: 4,
-      seatsAvailable: 4,
-      costPerSeat: 350,
-      isActive: true,
-    };
-
-    const todayEvening = new Date();
-    todayEvening.setHours(17, 0, 0, 0);
-
-    const ride3: Ride = {
-      id: "ride-3",
-      driverId: "driver-1",
-      vehicleId: "vehicle-1",
-      sourceLat: 33.6844,
-      sourceLng: 73.0479,
-      sourceAddress: "University Campus, Islamabad",
-      destLat: 33.2451,
-      destLng: 72.4192,
-      destAddress: "Pindi Gheb Main Chowk, Punjab",
-      departureTime: todayEvening,
-      seatsTotal: 3,
-      seatsAvailable: 3,
-      costPerSeat: 300,
-      isActive: true,
-    };
-
-    this.rides.set(ride1.id, ride1);
-    this.rides.set(ride2.id, ride2);
-    this.rides.set(ride3.id, ride3);
-
-    const booking1: Booking = {
-      id: "booking-1",
-      rideId: "ride-1",
-      passengerId: "passenger-1",
-      status: "accepted",
-      seatsBooked: 1,
-    };
-
-    this.bookings.set(booking1.id, booking1);
+      clerkId: null,
+      avatar: null,
+      phone: null,
+      cnic: null,
+      password: "" 
+    } as User;
   }
 
+  // --- Users ---
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const doc = await UserModel.findById(id);
+    return doc ? this.mapDoc<User>(doc) : undefined;
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.email.toLowerCase() === email.toLowerCase()
-    );
+    const doc = await UserModel.findOne({ email });
+    return doc ? this.mapDoc<User>(doc) : undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
-    const user: User = { id, ...insertUser };
-    this.users.set(id, user);
-    return user;
+    const doc = await UserModel.create({ _id: id, ...insertUser } as any);
+    return this.mapDoc<User>(doc);
   }
 
   async updateUser(id: string, data: Partial<User>): Promise<User | undefined> {
-    const user = this.users.get(id);
-    if (!user) return undefined;
-    const updated = { ...user, ...data };
-    this.users.set(id, updated);
-    return updated;
+    const doc = await UserModel.findByIdAndUpdate(id, data as any, { new: true });
+    return doc ? this.mapDoc<User>(doc) : undefined;
   }
 
+  // --- Vehicles ---
   async getVehicle(id: string): Promise<Vehicle | undefined> {
-    return this.vehicles.get(id);
+    const doc = await VehicleModel.findById(id);
+    return doc ? this.mapDoc<Vehicle>(doc) : undefined;
   }
 
   async getVehiclesByOwner(ownerId: string): Promise<Vehicle[]> {
-    return Array.from(this.vehicles.values()).filter(
-      (vehicle) => vehicle.ownerId === ownerId
-    );
+    const docs = await VehicleModel.find({ ownerId });
+    return docs.map(d => this.mapDoc<Vehicle>(d));
   }
 
   async createVehicle(insertVehicle: InsertVehicle): Promise<Vehicle> {
     const id = randomUUID();
-    const vehicle: Vehicle = { id, ...insertVehicle };
-    this.vehicles.set(id, vehicle);
-    return vehicle;
+    const doc = await VehicleModel.create({ _id: id, ...insertVehicle } as any);
+    return this.mapDoc<Vehicle>(doc);
   }
 
   async updateVehicle(id: string, data: Partial<Vehicle>): Promise<Vehicle | undefined> {
-    const vehicle = this.vehicles.get(id);
-    if (!vehicle) return undefined;
-    const updated = { ...vehicle, ...data };
-    this.vehicles.set(id, updated);
-    return updated;
+    const doc = await VehicleModel.findByIdAndUpdate(id, data as any, { new: true });
+    return doc ? this.mapDoc<Vehicle>(doc) : undefined;
   }
 
   async deleteVehicle(id: string): Promise<boolean> {
-    return this.vehicles.delete(id);
+    const result = await VehicleModel.findByIdAndDelete(id);
+    return !!result;
   }
 
+  // --- Rides ---
   async getRide(id: string): Promise<Ride | undefined> {
-    return this.rides.get(id);
+    const doc = await RideModel.findById(id);
+    return doc ? this.mapDoc<Ride>(doc) : undefined;
   }
 
   async getRideWithDriver(id: string): Promise<RideWithDriver | undefined> {
-    const ride = this.rides.get(id);
+    const ride = await this.getRide(id);
     if (!ride) return undefined;
     
     const driver = await this.getUser(ride.driverId);
-    if (!driver) return undefined;
+    const safeDriver = this.getSafeDriver(driver, ride.driverId);
     
     const vehicle = ride.vehicleId ? await this.getVehicle(ride.vehicleId) : undefined;
-    const bookings = await this.getBookingsByRideInternal(id);
+    const bookings = await BookingModel.find({ rideId: id });
     
     return {
       ...ride,
-      driver: stripPassword(driver) as User,
+      driver: safeDriver,
       vehicle,
       bookingsCount: bookings.length,
     };
   }
 
   async getAllRides(): Promise<RideWithDriver[]> {
-    const rides = Array.from(this.rides.values()).filter((r) => r.isActive);
-    const ridesWithDrivers: RideWithDriver[] = [];
-    
-    for (const ride of rides) {
+    const rides = await RideModel.find({ isActive: true }).sort({ departureTime: 1 });
+    const results: RideWithDriver[] = [];
+
+    for (const r of rides) {
+      const ride = this.mapDoc<Ride>(r);
       const driver = await this.getUser(ride.driverId);
-      if (!driver) continue;
+      const safeDriver = this.getSafeDriver(driver, ride.driverId);
       
       const vehicle = ride.vehicleId ? await this.getVehicle(ride.vehicleId) : undefined;
-      const bookings = await this.getBookingsByRideInternal(ride.id);
+      const bookingsCount = await BookingModel.countDocuments({ rideId: ride.id });
       
-      ridesWithDrivers.push({
+      results.push({
         ...ride,
-        driver: stripPassword(driver) as User,
+        driver: safeDriver,
         vehicle,
-        bookingsCount: bookings.length,
+        bookingsCount,
       });
     }
-    
-    return ridesWithDrivers.sort(
-      (a, b) => new Date(a.departureTime).getTime() - new Date(b.departureTime).getTime()
-    );
+    return results;
   }
 
   async getRidesByDriver(driverId: string): Promise<RideWithDriver[]> {
-    const rides = Array.from(this.rides.values()).filter(
-      (r) => r.driverId === driverId
-    );
-    const ridesWithDrivers: RideWithDriver[] = [];
-    
-    for (const ride of rides) {
-      const driver = await this.getUser(ride.driverId);
-      if (!driver) continue;
+    const rides = await RideModel.find({ driverId });
+    const results: RideWithDriver[] = [];
+
+    for (const r of rides) {
+      const ride = this.mapDoc<Ride>(r);
+      const driver = await this.getUser(driverId);
+      const safeDriver = this.getSafeDriver(driver, driverId);
       
       const vehicle = ride.vehicleId ? await this.getVehicle(ride.vehicleId) : undefined;
-      const bookings = await this.getBookingsByRideInternal(ride.id);
+      const bookingsCount = await BookingModel.countDocuments({ rideId: ride.id });
       
-      ridesWithDrivers.push({
+      results.push({
         ...ride,
-        driver: stripPassword(driver) as User,
+        driver: safeDriver,
         vehicle,
-        bookingsCount: bookings.length,
+        bookingsCount,
       });
     }
-    
-    return ridesWithDrivers;
+    return results;
   }
 
   async createRide(insertRide: InsertRide): Promise<Ride> {
     const id = randomUUID();
-    const ride: Ride = { id, ...insertRide };
-    this.rides.set(id, ride);
-    return ride;
+    const doc = await RideModel.create({ _id: id, ...insertRide } as any);
+    return this.mapDoc<Ride>(doc);
   }
 
   async updateRide(id: string, data: Partial<Ride>): Promise<Ride | undefined> {
-    const ride = this.rides.get(id);
-    if (!ride) return undefined;
-    const updated = { ...ride, ...data };
-    this.rides.set(id, updated);
-    return updated;
+    const doc = await RideModel.findByIdAndUpdate(id, data as any, { new: true });
+    return doc ? this.mapDoc<Ride>(doc) : undefined;
   }
 
   async deleteRide(id: string): Promise<boolean> {
-    const bookings = await this.getBookingsByRideInternal(id);
+    const bookings = await BookingModel.find({ rideId: id, status: "pending" });
     for (const booking of bookings) {
-      if (booking.status === "pending") {
-        await this.updateBooking(booking.id, { status: "rejected" });
-      }
+      await BookingModel.findByIdAndUpdate(booking._id, { status: "rejected" });
     }
-    return this.rides.delete(id);
+    const result = await RideModel.findByIdAndDelete(id);
+    return !!result;
   }
 
-  private async getBookingsByRideInternal(rideId: string): Promise<Booking[]> {
-    return Array.from(this.bookings.values()).filter(
-      (b) => b.rideId === rideId
-    );
-  }
-
+  // --- Bookings ---
   async getBooking(id: string): Promise<Booking | undefined> {
-    return this.bookings.get(id);
+    const doc = await BookingModel.findById(id);
+    return doc ? this.mapDoc<Booking>(doc) : undefined;
   }
 
   async getBookingWithDetails(id: string): Promise<BookingWithDetails | undefined> {
-    const booking = this.bookings.get(id);
+    const booking = await this.getBooking(id);
     if (!booking) return undefined;
-    
+
     const ride = await this.getRide(booking.rideId);
     if (!ride) return undefined;
-    
+
     const passenger = await this.getUser(booking.passengerId);
-    if (!passenger) return undefined;
-    
+    const safePassenger = this.getSafeDriver(passenger, booking.passengerId);
+
     const driver = await this.getUser(ride.driverId);
-    
+    const safeDriver = driver ? stripPassword(driver) : undefined;
+
     return {
       ...booking,
       ride,
-      passenger: stripPassword(passenger) as User,
-      driver: driver ? stripPassword(driver) as User : undefined,
+      passenger: safePassenger,
+      driver: safeDriver,
     };
   }
 
+  // In server/storage.ts
+
+ // In server/storage.ts
+
   async getAllBookings(): Promise<BookingWithDetails[]> {
-    const bookings = Array.from(this.bookings.values());
-    const bookingsWithDetails: BookingWithDetails[] = [];
-    
-    for (const booking of bookings) {
-      const details = await this.getBookingWithDetails(booking.id);
-      if (details) {
-        bookingsWithDetails.push(details);
-      }
-    }
-    
-    return bookingsWithDetails;
+    // 1. Fetch all bookings with populated fields
+    const bookings = await BookingModel.find()
+      .populate('passengerId')
+      .populate({
+        path: 'rideId',
+        populate: { path: 'driverId' } // Ensure we get the driver details too
+      })
+      .sort({ _id: -1 })
+      .lean(); // Convert to plain JS objects to allow adding properties
+
+    // 2. Manual Lookup: Attach the 'review' object if it exists
+    const results = await Promise.all(bookings.map(async (booking: any) => {
+      // Find a review where this passenger reviewed this driver for this ride
+      const review = await ReviewModel.findOne({
+        rideId: booking.rideId._id,
+        reviewerId: booking.passengerId._id
+      });
+      
+      // Attach it to the booking object
+      return { ...booking, review };
+    }));
+
+    return results as BookingWithDetails[];
   }
 
   async getBookingsByPassenger(passengerId: string): Promise<BookingWithDetails[]> {
-    const bookings = Array.from(this.bookings.values()).filter(
-      (b) => b.passengerId === passengerId
-    );
-    const bookingsWithDetails: BookingWithDetails[] = [];
-    
-    for (const booking of bookings) {
-      const details = await this.getBookingWithDetails(booking.id);
-      if (details) {
-        bookingsWithDetails.push(details);
-      }
+    const bookings = await BookingModel.find({ passengerId });
+    const results: BookingWithDetails[] = [];
+    for (const b of bookings) {
+      const details = await this.getBookingWithDetails(b._id as string);
+      if (details) results.push(details);
     }
-    
-    return bookingsWithDetails;
+    return results;
   }
 
   async getBookingsByRide(rideId: string): Promise<BookingWithDetails[]> {
-    const bookings = Array.from(this.bookings.values()).filter(
-      (b) => b.rideId === rideId
-    );
-    const bookingsWithDetails: BookingWithDetails[] = [];
-    
-    for (const booking of bookings) {
-      const details = await this.getBookingWithDetails(booking.id);
-      if (details) {
-        bookingsWithDetails.push(details);
-      }
+    const bookings = await BookingModel.find({ rideId });
+    const results: BookingWithDetails[] = [];
+    for (const b of bookings) {
+      const details = await this.getBookingWithDetails(b._id as string);
+      if (details) results.push(details);
     }
-    
-    return bookingsWithDetails;
+    return results;
   }
 
   async createBooking(insertBooking: InsertBooking): Promise<Booking> {
     const id = randomUUID();
-    const booking: Booking = { id, ...insertBooking };
-    this.bookings.set(id, booking);
-    return booking;
+    const doc = await BookingModel.create({ _id: id, ...insertBooking } as any);
+    return this.mapDoc<Booking>(doc);
   }
 
   async updateBooking(id: string, data: Partial<Booking>): Promise<Booking | undefined> {
-    const booking = this.bookings.get(id);
-    if (!booking) return undefined;
-    
-    const updated = { ...booking, ...data };
-    this.bookings.set(id, updated);
-    
-    if (data.status === "accepted") {
+    const doc = await BookingModel.findByIdAndUpdate(id, data as any, { new: true });
+    const booking = doc ? this.mapDoc<Booking>(doc) : undefined;
+
+    if (booking && data.status === "accepted") {
       const ride = await this.getRide(booking.rideId);
       if (ride) {
         await this.updateRide(ride.id, {
@@ -457,16 +317,35 @@ export class MemStorage implements IStorage {
       }
     }
     
-    if (data.status === "cancelled" && booking.status === "accepted") {
-      const ride = await this.getRide(booking.rideId);
-      if (ride) {
-        await this.updateRide(ride.id, {
-          seatsAvailable: ride.seatsAvailable + booking.seatsBooked,
-        });
-      }
+    if (booking && data.status === "cancelled") {
+        const ride = await this.getRide(booking.rideId);
+        if (ride) {
+            await this.updateRide(ride.id, {
+            seatsAvailable: ride.seatsAvailable + booking.seatsBooked,
+            });
+        }
     }
     
-    return updated;
+    return booking;
+  }
+
+  // --- REVIEWS & STATS ---
+  async createReview(insertReview: InsertReview): Promise<Review> {
+    const id = randomUUID();
+    const doc = await ReviewModel.create({ _id: id, ...insertReview } as any);
+    return this.mapDoc<Review>(doc);
+  }
+
+  async getReviewsByUser(userId: string): Promise<Review[]> {
+    const docs = await ReviewModel.find({ revieweeId: userId }).sort({ createdAt: -1 });
+    return docs.map(d => this.mapDoc<Review>(d));
+  }
+
+  async getDriverAverageRating(driverId: string): Promise<number> {
+    const reviews = await ReviewModel.find({ revieweeId: driverId });
+    if (reviews.length === 0) return 0;
+    const sum = reviews.reduce((acc, curr) => acc + curr.rating, 0);
+    return Number((sum / reviews.length).toFixed(1));
   }
 
   async getDriverStats(driverId: string): Promise<{
@@ -474,33 +353,31 @@ export class MemStorage implements IStorage {
     activeRides: number;
     totalBookings: number;
     totalEarnings: number;
+    averageRating: number;
   }> {
-    const rides = Array.from(this.rides.values()).filter(
-      (r) => r.driverId === driverId
-    );
-    const activeRides = rides.filter((r) => r.isActive);
+    const rides = await RideModel.find({ driverId });
+    const activeRides = rides.filter(r => r.isActive).length;
     
     let totalBookings = 0;
     let totalEarnings = 0;
-    
+
     for (const ride of rides) {
-      const bookings = Array.from(this.bookings.values()).filter(
-        (b) => b.rideId === ride.id && b.status === "accepted"
-      );
-      totalBookings += bookings.length;
-      totalEarnings += bookings.reduce(
-        (sum, b) => sum + b.seatsBooked * ride.costPerSeat,
-        0
-      );
+       const bookings = await BookingModel.find({ rideId: ride._id, status: 'accepted' });
+       totalBookings += bookings.length;
+       const seats = bookings.reduce((sum, b) => sum + (b.seatsBooked || 1), 0);
+       totalEarnings += seats * ride.costPerSeat;
     }
-    
+
+    const averageRating = await this.getDriverAverageRating(driverId);
+
     return {
       totalRides: rides.length,
-      activeRides: activeRides.length,
+      activeRides,
       totalBookings,
       totalEarnings,
+      averageRating
     };
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new MongoStorage();

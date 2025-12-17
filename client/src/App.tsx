@@ -16,6 +16,7 @@ import Bookings from "@/pages/bookings";
 import Profile from "@/pages/profile";
 import Vehicles from "@/pages/vehicles";
 import PostRide from "@/pages/post-ride";
+import UserProfile from "@/pages/user-profile";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { isAuthenticated } = useAuth();
@@ -47,12 +48,16 @@ function Router() {
       <Route path="/profile">
         {() => <ProtectedRoute component={Profile} />}
       </Route>
+      <Route path="/user/:id">
+        {() => <ProtectedRoute component={UserProfile} />}
+      </Route>
       <Route path="/vehicles">
         {() => <ProtectedRoute component={Vehicles} />}
       </Route>
       <Route path="/post-ride">
         {() => <ProtectedRoute component={PostRide} />}
       </Route>
+      <Route path="/user/:id" component={UserProfile} />
       <Route component={NotFound} />
     </Switch>
   );

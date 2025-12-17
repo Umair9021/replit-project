@@ -56,7 +56,7 @@ export const rides = pgTable("rides", {
   vehicleId: varchar("vehicle_id"),
   sourceLat: doublePrecision("source_lat").notNull(),
   sourceLng: doublePrecision("source_lng").notNull(),
-  sourceAddress: text("source_address").notNull(),
+  sourceAddress: text("source_address").notNull(),  
   destLat: doublePrecision("dest_lat").notNull(),
   destLng: doublePrecision("dest_lng").notNull(),
   destAddress: text("dest_address").notNull(),
@@ -65,10 +65,15 @@ export const rides = pgTable("rides", {
   seatsAvailable: integer("seats_available").notNull(),
   costPerSeat: integer("cost_per_seat").notNull(),
   isActive: boolean("is_active").default(true),
+  status: text("status").notNull().$type<"scheduled" | "ongoing" | "completed">().default("scheduled"),
+  currentLat: doublePrecision("current_lat"),
+  currentLng: doublePrecision("current_lng"),
 });
 
-export const insertRideSchema = createInsertSchema(rides).omit({ id: true }).extend({
-    departureTime: z.coerce.date(), // This will accept both Date and string
+export const insertRideSchema = createInsertSchema(rides)
+  .omit({ id: true, status: true, currentLat: true, currentLng: true })
+  .extend({
+    departureTime: z.coerce.date(),
   });
 export type InsertRide = z.infer<typeof insertRideSchema>;
 export type Ride = typeof rides.$inferSelect;
@@ -81,7 +86,19 @@ export const bookings = pgTable("bookings", {
   status: text("status").notNull().$type<"pending" | "accepted" | "rejected" | "cancelled">(),
   seatsBooked: integer("seats_booked").notNull().default(1),
 });
-
+//review table
+export const reviews = pgTable("reviews", {
+  id: varchar("id").primaryKey(),
+  rideId: varchar("ride_id").notNull(),
+  reviewerId: varchar("reviewer_id").notNull(), // Passenger
+  revieweeId: varchar("reviewee_id").notNull(), // Driver
+  rating: integer("rating").notNull(), // 1-5
+  comment: text("comment"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export const insertReviewSchema = createInsertSchema(reviews).omit({ id: true, createdAt: true });
+export type InsertReview = z.infer<typeof insertReviewSchema>;
+export type Review = typeof reviews.$inferSelect;
 export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true });
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
 export type Booking = typeof bookings.$inferSelect;
@@ -97,4 +114,5 @@ export type BookingWithDetails = Booking & {
   ride: Ride;
   passenger: User;
   driver?: User;
+  review?: Review;
 };
