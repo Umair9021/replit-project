@@ -234,8 +234,11 @@ export default function PostRide() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div>
             <Form {...form}>
+              {/* ... form content remains same ... */}
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                <Card>
+                 {/* ... Cards for Route, Schedule, Ride Details ... */}
+                 {/* (Content matches original file) */}
+                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <MapPin className="h-5 w-5" />
@@ -519,9 +522,10 @@ export default function PostRide() {
               </form>
             </Form>
           </div>
-
-          <div className="hidden lg:block">
-            <Card className="sticky top-24 h-[600px] overflow-hidden">
+          
+          {/* UPDATED: Map visible on mobile, appropriate height */}
+          <div className="block mt-8 lg:mt-0"> 
+            <Card className="h-[400px] lg:h-[600px] lg:sticky lg:top-24 overflow-hidden">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg">Route Preview</CardTitle>
                 <CardDescription>

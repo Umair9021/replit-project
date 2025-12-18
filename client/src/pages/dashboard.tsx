@@ -451,9 +451,10 @@ export default function Dashboard() {
       </div>
 
       <Dialog open={!!selectedRide} onOpenChange={(open) => !open && setSelectedRide(null)}>
-        <DialogContent className="max-w-4xl p-0 gap-0 overflow-hidden border-none shadow-xl flex flex-col md:flex-row h-[500px]">
+        {/* UPDATED: Responsive Dialog Content Height */}
+        <DialogContent className="max-w-4xl p-0 gap-0 overflow-hidden border-none shadow-xl flex flex-col md:flex-row h-[80vh] md:h-[500px]">
           {/* Map Section */}
-          <div className="w-full md:w-1/2 h-48 md:h-full relative bg-muted/20">
+          <div className="w-full md:w-1/2 h-48 md:h-full relative bg-muted/20 shrink-0">
             {selectedRide && (
               <MapComponent
                 center={[selectedRide.sourceLat, selectedRide.sourceLng]}
@@ -470,9 +471,11 @@ export default function Dashboard() {
 
           {/* Details Section */}
           <div className="w-full md:w-1/2 flex flex-col p-6 h-full overflow-y-auto">
-            {selectedRide && (
+             {/* ... content remains same ... */}
+             {selectedRide && (
               <>
                 <div className="flex items-start justify-between mb-6">
+                  {/* ... Driver Info ... */}
                   <div className="flex items-center gap-4">
                     <Avatar className="h-14 w-14 border border-border">
                       <AvatarImage src={selectedRide.driver?.avatar || undefined} />
@@ -553,7 +556,6 @@ export default function Dashboard() {
                     Close
                   </Button>
                   <Button
-                    // ✅ FIXED: Pass object with default 1 seat
                     onClick={() => createBookingMutation.mutate({ rideId: selectedRide.id, seats: 1 })}
                     disabled={createBookingMutation.isPending || selectedRide.seatsAvailable === 0 || !!myStatus}
                     className={`flex-[2] ${myStatus === 'accepted' ? "bg-green-600 hover:bg-green-700" : ""}`}

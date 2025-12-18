@@ -8,15 +8,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"; // Import Sheet components
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
 import { useTheme } from "@/lib/theme-provider";
-import { Car, Sun, Moon, User, LogOut, Settings, ArrowLeftRight } from "lucide-react";
+import { Car, Sun, Moon, User, LogOut, Settings, ArrowLeftRight, Menu } from "lucide-react"; // Import Menu icon
+import { useState } from "react";
 
 export function Header() {
   const { user, isAuthenticated, activeRole, switchRole, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [location] = useLocation();
+  const [isOpen, setIsOpen] = useState(false); // State for mobile menu
 
   const getInitials = (name: string) => {
     return name
@@ -29,10 +32,63 @@ export function Header() {
 
   const canSwitchRole = user?.role === "both";
 
+  const NavLinks = () => (
+    <>
+      <Link href="/dashboard" onClick={() => setIsOpen(false)}>
+        <Button
+          variant={location === "/dashboard" ? "secondary" : "ghost"}
+          className="w-full justify-start md:w-auto"
+          data-testid="link-dashboard"
+        >
+          Dashboard
+        </Button>
+      </Link>
+      {(activeRole === "driver" || user?.role === "both") && (
+        <Link href="/my-rides" onClick={() => setIsOpen(false)}>
+          <Button
+            variant={location === "/my-rides" ? "secondary" : "ghost"}
+            className="w-full justify-start md:w-auto"
+            data-testid="link-my-rides"
+          >
+            My Rides
+          </Button>
+        </Link>
+      )}
+      <Link href="/bookings" onClick={() => setIsOpen(false)}>
+        <Button
+          variant={location === "/bookings" ? "secondary" : "ghost"}
+          className="w-full justify-start md:w-auto"
+          data-testid="link-bookings"
+        >
+          Bookings
+        </Button>
+      </Link>
+    </>
+  );
+
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between gap-4 px-4">
-        <Link href="/" className="flex items-center gap-2">
+        {/* Mobile Menu Trigger (Left) */}
+        {isAuthenticated && (
+          <div className="md:hidden">
+            <Sheet open={isOpen} onOpenChange={setIsOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="mr-2">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-[80%] sm:w-[350px]">
+                <SheetTitle className="text-left mb-4">Menu</SheetTitle>
+                <nav className="flex flex-col gap-2 mt-4">
+                  <NavLinks />
+                </nav>
+              </SheetContent>
+            </Sheet>
+          </div>
+        )}
+
+        <Link href="/" className="flex items-center gap-2 mr-auto md:mr-0">
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary">
             <Car className="h-5 w-5 text-primary-foreground" />
           </div>
@@ -41,34 +97,10 @@ export function Header() {
           </span>
         </Link>
 
+        {/* Desktop Navigation */}
         {isAuthenticated && (
           <nav className="hidden md:flex items-center gap-1">
-            <Link href="/dashboard">
-              <Button
-                variant={location === "/dashboard" ? "secondary" : "ghost"}
-                data-testid="link-dashboard"
-              >
-                Dashboard
-              </Button>
-            </Link>
-            {(activeRole === "driver" || user?.role === "both") && (
-              <Link href="/my-rides">
-                <Button
-                  variant={location === "/my-rides" ? "secondary" : "ghost"}
-                  data-testid="link-my-rides"
-                >
-                  My Rides
-                </Button>
-              </Link>
-            )}
-            <Link href="/bookings">
-              <Button
-                variant={location === "/bookings" ? "secondary" : "ghost"}
-                data-testid="link-bookings"
-              >
-                Bookings
-              </Button>
-            </Link>
+            <NavLinks />
           </nav>
         )}
 
