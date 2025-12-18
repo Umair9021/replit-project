@@ -43,11 +43,15 @@ export function BookingCard({
   const [ratingOpen, setRatingOpen] = useState(false);
   const [rating, setRating] = useState("5");
   const [comment, setComment] = useState("");
-  // Local state to track if we just reviewed
   const [hasReviewed, setHasReviewed] = useState(!!booking.review);
 
-  // ✅ CRITICAL FIX: Cast to 'any' to bypass strict schema checks
-  // This allows us to access .driver, ._id, etc. without TypeScript errors
+  // Helper to extract ID string safely from populated objects or raw strings
+  const getId = (item: any) => {
+    if (!item) return undefined;
+    if (typeof item === 'string') return item;
+    return item.id || item._id;
+  };
+
   const ride: any = booking.ride || booking.rideId;
   const passenger: any = booking.passenger || booking.passengerId;
   
@@ -63,22 +67,48 @@ export function BookingCard({
   const isTomorrow = new Date(Date.now() + 86400000).toDateString() === departureDate.toDateString();
   const dateLabel = isToday ? "Today" : isTomorrow ? "Tomorrow" : format(departureDate, "MMM d");
 
-  // ✅ Now valid because 'passenger' and 'ride' are 'any'
-  const displayUser = viewAs === "driver" ? passenger : ride.driver;
-  const userLabel = viewAs === "driver" ? "Passenger" : "Driver";
+  // Determine which user to display on the card
+  // If viewing as Driver -> Show Passenger
+  // If viewing as Passenger -> Show Driver (which might be nested in ride.driverId due to population)
+  let displayUser = viewAs === "driver" ? passenger : null;
+  
+  if (viewAs !== "driver") {
+    // Try to find the driver object. 
+    // It might be 'ride.driver' (custom object) or 'ride.driverId' (populated object)
+    if (ride.driver && typeof ride.driver === 'object') {
+      displayUser = ride.driver;
+    } else if (ride.driverId && typeof ride.driverId === 'object') {
+      displayUser = ride.driverId;
+    } else if (booking.driver && typeof booking.driver === 'object') {
+      displayUser = booking.driver;
+    }
+  }
 
+  const userLabel = viewAs === "driver" ? "Passenger" : "Driver";
   const isLive = ride.status === "ongoing";
   const isCompleted = ride.status === "completed";
 
   const submitReviewMutation = useMutation({
     mutationFn: async () => {
-      // ✅ Now valid: checking both id and _id handles Mongoose vs Drizzle differences
+      // ✅ FIX: Extract IDs safely to ensure strings are sent, not objects
+      const rideIdStr = getId(ride);
+      const reviewerIdStr = getId(passenger);
+      
+      // Determine driver ID (Reviewee)
+      let revieweeIdStr = getId(ride.driverId); 
+      if (!revieweeIdStr && ride.driver) revieweeIdStr = getId(ride.driver);
+      if (!revieweeIdStr && booking.driver) revieweeIdStr = getId(booking.driver);
+
+      if (!rideIdStr || !reviewerIdStr || !revieweeIdStr) {
+        throw new Error("Missing ID information for review");
+      }
+
       return apiRequest("POST", "/api/reviews", {
-        rideId: ride.id || ride._id,
-        reviewerId: passenger.id || passenger._id,
-        revieweeId: ride.driverId || ride.driver?._id || ride.driver?.id,
+        rideId: rideIdStr,
+        reviewerId: reviewerIdStr,
+        revieweeId: revieweeIdStr,
         rating: parseInt(rating),
-        comment,
+        comment: comment || "", // Ensure string
       });
     },
     onSuccess: () => {
@@ -87,7 +117,8 @@ export function BookingCard({
       setHasReviewed(true);
     },
     onError: (error: any) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      console.error("Review Error:", error);
+      toast({ title: "Error", description: error.message || "Failed to submit review", variant: "destructive" });
     }
   });
 
@@ -108,8 +139,7 @@ export function BookingCard({
               </Avatar>
               <div className="overflow-hidden">
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">{userLabel}</p>
-                <p className="font-semibold truncate max-w-[120px]">{displayUser?.name}</p>
-                {/* Optional: Show vehicle if driver */}
+                <p className="font-semibold truncate max-w-[120px]">{displayUser?.name || "Unknown"}</p>
                 {viewAs !== "driver" && ride.vehicle && (
                    <p className="text-xs text-muted-foreground">{ride.vehicle.model} • {ride.vehicle.color}</p>
                 )}
@@ -163,10 +193,7 @@ export function BookingCard({
           </div>
         </CardContent>
 
-        {/* --- FOOTER ACTIONS --- */}
         <CardFooter className="flex gap-2 pt-0 pb-4 px-4">
-          
-          {/* DRIVER ACTIONS */}
           {viewAs === "driver" && booking.status === "pending" && (
             <>
               <Button variant="outline" className="flex-1 text-red-600 border-red-200 hover:bg-red-50" onClick={onReject}>
@@ -178,24 +205,20 @@ export function BookingCard({
             </>
           )}
 
-          {/* PASSENGER ACTIONS */}
           {viewAs !== "driver" && (
              <>
-                {/* Cancel (Pending/Accepted) */}
                 {(booking.status === "pending" || (booking.status === "accepted" && !isLive && !isCompleted)) && (
                    <Button variant="outline" className="w-full" onClick={onCancel}>
                      <Ban className="mr-2 h-4 w-4" /> Cancel Request
                    </Button>
                 )}
 
-                {/* Track Live (Accepted + Live) */}
                 {booking.status === "accepted" && isLive && (
                    <Button className="w-full bg-blue-600 hover:bg-blue-700 animate-pulse" onClick={onTrack}>
                      <Navigation className="mr-2 h-4 w-4" /> Track Live
                    </Button>
                 )}
 
-                {/* Rate Driver (Accepted + Completed) */}
                 {booking.status === "accepted" && isCompleted && (
                    <Button 
                       className="w-full" 
@@ -215,7 +238,6 @@ export function BookingCard({
         </CardFooter>
       </Card>
 
-      {/* RATING DIALOG */}
       <Dialog open={ratingOpen} onOpenChange={setRatingOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Rate Driver</DialogTitle></DialogHeader>

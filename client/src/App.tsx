@@ -17,6 +17,7 @@ import Profile from "@/pages/profile";
 import Vehicles from "@/pages/vehicles";
 import PostRide from "@/pages/post-ride";
 import UserProfile from "@/pages/user-profile";
+import Settings from "@/pages/settings";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { isAuthenticated } = useAuth();
@@ -58,6 +59,9 @@ function Router() {
         {() => <ProtectedRoute component={PostRide} />}
       </Route>
       <Route path="/user/:id" component={UserProfile} />
+      <Route path="/settings">
+        {() => <ProtectedRoute component={Settings} />}
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );

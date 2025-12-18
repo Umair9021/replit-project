@@ -42,7 +42,11 @@ const userSchema = new mongoose.Schema({
     enum: ["not_uploaded", "pending", "verified", "rejected"], 
     default: "not_uploaded" 
   },
-  isAdmin: { type: Boolean, default: false }
+  isAdmin: { type: Boolean, default: false },
+  
+  emailNotifications: { type: Boolean, default: true },
+  pushNotifications: { type: Boolean, default: true },
+  marketingNotifications: { type: Boolean, default: false }
 });
 
 const vehicleSchema = new mongoose.Schema({

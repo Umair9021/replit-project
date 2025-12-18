@@ -14,6 +14,7 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<boolean>;
   
   // Vehicles
   getVehicle(id: string): Promise<Vehicle | undefined>;
@@ -40,7 +41,7 @@ export interface IStorage {
   createBooking(booking: InsertBooking): Promise<Booking>;
   updateBooking(id: string, data: Partial<Booking>): Promise<Booking | undefined>;
   
-  // Reviews (Fixed Missing Methods)
+  // Reviews
   createReview(review: InsertReview): Promise<Review>;
   getReviewsByUser(userId: string): Promise<Review[]>;
   getDriverAverageRating(driverId: string): Promise<number>;
@@ -248,30 +249,32 @@ export class MongoStorage implements IStorage {
     };
   }
 
-  // In server/storage.ts
-
- // In server/storage.ts
-
   async getAllBookings(): Promise<BookingWithDetails[]> {
     // 1. Fetch all bookings with populated fields
     const bookings = await BookingModel.find()
       .populate('passengerId')
       .populate({
         path: 'rideId',
-        populate: { path: 'driverId' } // Ensure we get the driver details too
+        populate: { path: 'driverId' }
       })
       .sort({ _id: -1 })
-      .lean(); // Convert to plain JS objects to allow adding properties
+      .lean();
 
     // 2. Manual Lookup: Attach the 'review' object if it exists
     const results = await Promise.all(bookings.map(async (booking: any) => {
-      // Find a review where this passenger reviewed this driver for this ride
-      const review = await ReviewModel.findOne({
-        rideId: booking.rideId._id,
-        reviewerId: booking.passengerId._id
-      });
+      // ✅ FIX: Safety check for broken references (Deleted Rides/Passengers)
+      // If booking.rideId or passengerId is null (populated failed), we skip review lookup to prevent crash
+      const rideId = booking.rideId?._id;
+      const reviewerId = booking.passengerId?._id;
       
-      // Attach it to the booking object
+      let review = null;
+      if (rideId && reviewerId) {
+         review = await ReviewModel.findOne({
+          rideId: rideId,
+          reviewerId: reviewerId
+        });
+      }
+      
       return { ...booking, review };
     }));
 
@@ -305,24 +308,33 @@ export class MongoStorage implements IStorage {
   }
 
   async updateBooking(id: string, data: Partial<Booking>): Promise<Booking | undefined> {
+    // 1. Get the OLD status to check for transitions
+    const existingBooking = await this.getBooking(id);
+    if (!existingBooking) return undefined;
+
     const doc = await BookingModel.findByIdAndUpdate(id, data as any, { new: true });
     const booking = doc ? this.mapDoc<Booking>(doc) : undefined;
 
-    if (booking && data.status === "accepted") {
-      const ride = await this.getRide(booking.rideId);
-      if (ride) {
-        await this.updateRide(ride.id, {
-          seatsAvailable: Math.max(0, ride.seatsAvailable - booking.seatsBooked),
-        });
-      }
-    }
-    
-    if (booking && data.status === "cancelled") {
+    if (booking) {
         const ride = await this.getRide(booking.rideId);
+        
         if (ride) {
-            await this.updateRide(ride.id, {
-            seatsAvailable: ride.seatsAvailable + booking.seatsBooked,
-            });
+            // ✅ FIX: Removed double deduction on "accepted"
+            // (Seats are already deducted on creation in routes.ts)
+
+            // ✅ FIX: Add refund logic for "rejected"
+            if (data.status === "rejected" && existingBooking.status === "pending") {
+                await this.updateRide(ride.id, {
+                    seatsAvailable: ride.seatsAvailable + booking.seatsBooked,
+                });
+            }
+
+            // Refund logic for "cancelled"
+            if (data.status === "cancelled" && (existingBooking.status === "accepted" || existingBooking.status === "pending")) {
+                await this.updateRide(ride.id, {
+                    seatsAvailable: ride.seatsAvailable + booking.seatsBooked,
+                });
+            }
         }
     }
     
@@ -346,6 +358,39 @@ export class MongoStorage implements IStorage {
     if (reviews.length === 0) return 0;
     const sum = reviews.reduce((acc, curr) => acc + curr.rating, 0);
     return Number((sum / reviews.length).toFixed(1));
+  }
+  
+  async deleteUser(id: string): Promise<boolean> {
+    try {
+      // 1. Get all rides by this driver to delete them properly
+      const driverRides = await RideModel.find({ driverId: id });
+      
+      // 2. Parallelize the deletion of related data
+      await Promise.all([
+        // A. Delete all rides (this should ideally trigger booking refunds/cancellations logic if needed)
+        ...driverRides.map(ride => this.deleteRide(ride._id as string)),
+
+        // B. Delete all bookings MADE by this user (as a passenger)
+        BookingModel.deleteMany({ passengerId: id }),
+
+        // C. Delete all vehicles owned by this user
+        VehicleModel.deleteMany({ ownerId: id }),
+
+        // D. Delete reviews written by this user
+        ReviewModel.deleteMany({ reviewerId: id }),
+        
+        // E. (Optional) Delete reviews WRITTEN ABOUT this user? 
+        // Usually better to keep them for record, but for full wipe:
+        ReviewModel.deleteMany({ revieweeId: id }) 
+      ]);
+
+      // 3. Finally, delete the user profile
+      const result = await UserModel.findByIdAndDelete(id);
+      return !!result;
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      return false;
+    }
   }
 
   async getDriverStats(driverId: string): Promise<{

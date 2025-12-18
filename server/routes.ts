@@ -25,7 +25,7 @@ const uploadStorage = new CloudinaryStorage({
   } as any, 
 });
 
-// ✅ FIX: Cast storage to 'any' to resolve the TypeScript error
+// Cast storage to 'any' to resolve TypeScript error
 const upload = multer({ storage: uploadStorage as any });
 
 function stripPassword<T extends { password?: string }>(user: T): Omit<T, 'password'> {
@@ -91,8 +91,7 @@ export async function registerRoutes(
     }
   });
 
-  // ✅ AVATAR UPLOAD (CLOUDINARY)
-  // FIX: Cast middleware to 'any' and req to 'any' to fix strict type issues
+  // AVATAR UPLOAD (CLOUDINARY)
   app.post("/api/users/:id/avatar", upload.single("avatar") as any, async (req: any, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
@@ -108,7 +107,7 @@ export async function registerRoutes(
     }
   });
 
-  // ✅ CNIC UPLOAD (CLOUDINARY)
+  // CNIC UPLOAD (CLOUDINARY)
   app.post("/api/users/:id/cnic", upload.single("cnic") as any, async (req: any, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
@@ -203,8 +202,18 @@ export async function registerRoutes(
   });
 
   // --- BOOKING ROUTES ---
-  // Inside server/routes.ts
 
+  // 1. GET Bookings (Needed for Driver Dashboard)
+  app.get("/api/bookings", async (req, res) => {
+    try {
+      const bookings = await storage.getAllBookings();
+      res.json(bookings);
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to fetch bookings" });
+    }
+  });
+
+  // 2. CREATE Booking (With Seat Deduction)
   app.post("/api/bookings", async (req, res) => {
     try {
       const createBookingSchema = z.object({
@@ -221,14 +230,15 @@ export async function registerRoutes(
       
       if (!ride) return res.status(404).json({ message: "Ride not found" });
       
-      // ✅ Check if enough seats are available
+      // Check availability
       if (ride.seatsAvailable < seatsBooked) {
         return res.status(400).json({ message: `Only ${ride.seatsAvailable} seats available` });
       }
 
+      // Create booking (Pending)
       const booking = await storage.createBooking({ rideId, passengerId, status: "pending", seatsBooked });
 
-      // ✅ CRITICAL: Update the Ride to reduce available seats
+      // Reserve seats immediately
       const newSeatsAvailable = ride.seatsAvailable - seatsBooked;
       await storage.updateRide(rideId, { seatsAvailable: newSeatsAvailable });
 
@@ -239,29 +249,7 @@ export async function registerRoutes(
     }
   });
 
-  const createBookingSchema = z.object({
-    rideId: z.string(),
-    passengerId: z.string(),
-    seatsBooked: z.number().min(1).default(1),
-  });
-
-  app.post("/api/bookings", async (req, res) => {
-    try {
-      const result = createBookingSchema.safeParse(req.body);
-      if (!result.success) return res.status(400).json({ message: fromZodError(result.error).message });
-      
-      const { rideId, passengerId, seatsBooked } = result.data;
-      const ride = await storage.getRide(rideId);
-      if (!ride) return res.status(404).json({ message: "Ride not found" });
-      if (ride.seatsAvailable < seatsBooked) return res.status(400).json({ message: "Not enough seats" });
-
-      const booking = await storage.createBooking({ rideId, passengerId, status: "pending", seatsBooked });
-      res.json(booking);
-    } catch (error: any) {
-      res.status(400).json({ message: "Booking failed" });
-    }
-  });
-
+  // 3. UPDATE Booking
   app.patch("/api/bookings/:id", async (req, res) => {
     const booking = await storage.updateBooking(req.params.id, req.body);
     if (!booking) return res.status(404).json({ message: "Booking not found" });
@@ -289,6 +277,57 @@ export async function registerRoutes(
     const stats = await storage.getDriverStats(req.params.userId);
     res.json(stats);
   });
+
+
+  app.patch("/api/users/:id", async (req, res) => {
+    try {
+      // We accept any partial update allowed by the schema
+      const user = await storage.updateUser(req.params.id, req.body);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      res.json(stripPassword(user));
+    } catch (error: any) {
+      res.status(400).json({ message: "Update failed" });
+    }
+  });
+
+  // ✅ 2. CHANGE PASSWORD (Strict Error Message)
+  app.post("/api/users/:id/password", async (req, res) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      const user = await storage.getUser(req.params.id);
+
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      // STRICT ERROR: Only return this specific message if password doesn't match
+      if (user.password !== currentPassword) {
+        return res.status(400).json({ message: "Incorrect current password" });
+      }
+
+      await storage.updateUser(user.id, { password: newPassword });
+      
+      res.json({ success: true, message: "Password updated successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to update password" });
+    }
+  });
+
+  // DELETE ACCOUNT ROUTE
+  app.delete("/api/users/:id", async (req, res) => {
+    try {
+      const userId = req.params.id;
+      const success = await storage.deleteUser(userId);
+      
+      if (!success) {
+        return res.status(404).json({ message: "User not found or already deleted" });
+      }
+      
+      res.json({ success: true, message: "Account permanently deleted" });
+    } catch (error: any) {
+      console.error("Delete account error:", error);
+      res.status(500).json({ message: "Failed to delete account" });
+    }
+  });
+
 
   return httpServer;
 }

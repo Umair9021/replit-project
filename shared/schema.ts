@@ -15,6 +15,11 @@ export const users = pgTable("users", {
   cnic: text("cnic"),
   cnicStatus: text("cnic_status").notNull().$type<"not_uploaded" | "pending" | "verified" | "rejected">().default("not_uploaded"),
   isAdmin: boolean("is_admin").default(false),
+
+  // ✅ NEW FIELDS
+  emailNotifications: boolean("email_notifications").default(true),
+  pushNotifications: boolean("push_notifications").default(true),
+  marketingNotifications: boolean("marketing_notifications").default(false),
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });

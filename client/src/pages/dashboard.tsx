@@ -19,7 +19,6 @@ import { RideCardSkeleton, StatCardSkeleton } from "@/components/loading-skeleto
 import { MapComponent } from "@/components/map-component";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { RideWithDriver, Booking } from "@shared/schema";
-import UserProfile from "./user-profile";
 import {
   Search,
   MapPin,
